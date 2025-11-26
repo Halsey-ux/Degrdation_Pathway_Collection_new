@@ -320,6 +320,8 @@
     const redoBtn = document.getElementById("redoBtn");
     const deleteNodeBtn = document.getElementById("deleteNodeBtn");
     const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
+    const deleteNodeBtn = document.getElementById("deleteNodeBtn");
+    const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
     const exportBtn = document.getElementById("exportBtn");
     const exportTreeBtn = document.getElementById("exportTreeBtn");
     const importTreeBtn = document.getElementById("importTreeBtn");
@@ -339,6 +341,7 @@
     let idCounter = 0;
     let toastTimer = null;
     let pendingTree = null;
+    let duplicateNodeIds = new Set();
     let duplicateNodeIds = new Set();
     const historyStack = [];
     const redoStack = [];
@@ -409,6 +412,18 @@
       for (const child of node.children) {
         const found = findNode(child, id);
         if (found) return found;
+      }
+      return null;
+    }
+
+    function findParent(node, childId) {
+      if (!node || !node.children) return null;
+      for (const child of node.children) {
+        if (child.id === childId) {
+          return node;
+        }
+        const parent = findParent(child, childId);
+        if (parent) return parent;
       }
       return null;
     }
@@ -796,6 +811,14 @@
       checkDuplicateSmiles();
     });
 
+    deleteNodeBtn.addEventListener("click", () => {
+      deleteSelectedSubtree();
+    });
+
+    checkDuplicatesBtn.addEventListener("click", () => {
+      checkDuplicateSmiles();
+    });
+
     undoBtn.addEventListener("click", () => {
       undoLast();
     });
@@ -823,6 +846,45 @@
       }
       if (node.children) {
         node.children.forEach(child => collectSmiles(child, acc));
+      }
+    }
+
+    function collectNodesBySmiles(node, map) {
+      if (!node) return;
+      const key = (node.smiles || "").trim();
+      if (key) {
+        if (!map.has(key)) {
+          map.set(key, []);
+        }
+        map.get(key).push(node.id);
+      }
+      if (node.children) {
+        node.children.forEach(child => collectNodesBySmiles(child, map));
+      }
+    }
+
+    function checkDuplicateSmiles() {
+      if (!currentTree) {
+        showToast("请先设置母分子");
+        return;
+      }
+      assignIds(currentTree);
+      const map = new Map();
+      collectNodesBySmiles(currentTree, map);
+      const duplicates = new Set();
+      let groupCount = 0;
+      map.forEach(ids => {
+        if (ids.length > 1) {
+          groupCount += 1;
+          ids.forEach(id => duplicates.add(id));
+        }
+      });
+      duplicateNodeIds = duplicates;
+      updateDuplicateStyles();
+      if (duplicates.size) {
+        showToast(`发现 ${groupCount} 组重复的 SMILES，已用红色高亮`);
+      } else {
+        showToast("未发现重复的 SMILES");
       }
     }
 
