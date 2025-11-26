@@ -166,6 +166,10 @@
       stroke: var(--accent);
       stroke-width: 2px;
     }
+    .node.duplicate circle {
+      stroke: #d9534f;
+      stroke-width: 3px;
+    }
     #toast {
       position: fixed;
       top: 18px;
@@ -314,6 +318,8 @@
     const selectedLabel = document.getElementById("selectedLabel");
     const undoBtn = document.getElementById("undoBtn");
     const redoBtn = document.getElementById("redoBtn");
+    const deleteNodeBtn = document.getElementById("deleteNodeBtn");
+    const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
     const exportBtn = document.getElementById("exportBtn");
     const exportTreeBtn = document.getElementById("exportTreeBtn");
     const importTreeBtn = document.getElementById("importTreeBtn");
@@ -333,6 +339,7 @@
     let idCounter = 0;
     let toastTimer = null;
     let pendingTree = null;
+    let duplicateNodeIds = new Set();
     const historyStack = [];
     const redoStack = [];
 
@@ -402,6 +409,20 @@
       for (const child of node.children) {
         const found = findNode(child, id);
         if (found) return found;
+      }
+      return null;
+    }
+
+    function findParent(node, childId) {
+      if (!node || !node.children) return null;
+      for (const child of node.children) {
+        if (child.id === childId) {
+          return node;
+        }
+        const parent = findParent(child, childId);
+        if (parent) {
+          return parent;
+        }
       }
       return null;
     }
@@ -506,6 +527,16 @@
 
     function updateSelectedStyles() {
       g.selectAll(".node").classed("selected", d => d.data.id === selectedNodeId);
+      updateDuplicateStyles();
+    }
+
+    function updateDuplicateStyles() {
+      g.selectAll(".node").classed("duplicate", d => duplicateNodeIds.has(d.data.id));
+    }
+
+    function clearDuplicateHighlights() {
+      duplicateNodeIds.clear();
+      updateDuplicateStyles();
     }
 
     function commitState(tree) {
@@ -543,6 +574,7 @@
       try {
         currentTree = state ? JSON.parse(state) : null;
         selectedNodeId = currentTree ? currentTree.id : null;
+        clearDuplicateHighlights();
         updateSelectedLabel();
         queueRender(currentTree, true);
         if (currentTree) {
@@ -609,6 +641,45 @@
       updateSelectedLabel();
       updateSelectedStyles();
       showToast(`已选择：${node.name || node.smiles}`);
+    }
+
+    function deleteSelectedSubtree() {
+      if (!currentTree) {
+        showToast("请先设置母分子");
+        return;
+      }
+      if (!selectedNodeId) {
+        showToast("请先选择要删除的节点");
+        return;
+      }
+      const target = findNode(currentTree, selectedNodeId);
+      if (!target) {
+        showToast("找不到要删除的节点");
+        return;
+      }
+      const label = target.name || target.smiles || "节点";
+      if (target.id === currentTree.id) {
+        currentTree = null;
+        selectedNodeId = null;
+      } else {
+        const parent = findParent(currentTree, selectedNodeId);
+        if (!parent) {
+          showToast("找不到节点的母分子");
+          return;
+        }
+        parent.children = (parent.children || []).filter(child => child.id !== selectedNodeId);
+        selectedNodeId = parent.id;
+      }
+      commitState(currentTree);
+      clearDuplicateHighlights();
+      updateSelectedLabel();
+      queueRender(currentTree, true);
+      if (currentTree) {
+        centerGraph();
+      } else {
+        clearGraph();
+      }
+      showToast(`已删除 ${label}`);
     }
 
     setRootBtn.addEventListener("click", () => {
@@ -717,6 +788,14 @@
       reader.readAsText(file, "utf-8");
     });
 
+    deleteNodeBtn.addEventListener("click", () => {
+      deleteSelectedSubtree();
+    });
+
+    checkDuplicatesBtn.addEventListener("click", () => {
+      checkDuplicateSmiles();
+    });
+
     undoBtn.addEventListener("click", () => {
       undoLast();
     });
@@ -744,6 +823,45 @@
       }
       if (node.children) {
         node.children.forEach(child => collectSmiles(child, acc));
+      }
+    }
+
+    function collectNodesBySmiles(node, map) {
+      if (!node) return;
+      const key = (node.smiles || "").trim();
+      if (key) {
+        if (!map.has(key)) {
+          map.set(key, []);
+        }
+        map.get(key).push(node.id);
+      }
+      if (node.children) {
+        node.children.forEach(child => collectNodesBySmiles(child, map));
+      }
+    }
+
+    function checkDuplicateSmiles() {
+      if (!currentTree) {
+        showToast("请先构建反应路径");
+        return;
+      }
+      assignIds(currentTree);
+      const map = new Map();
+      collectNodesBySmiles(currentTree, map);
+      const duplicates = new Set();
+      let groupCount = 0;
+      map.forEach(ids => {
+        if (ids.length > 1) {
+          groupCount += 1;
+          ids.forEach(id => duplicates.add(id));
+        }
+      });
+      duplicateNodeIds = duplicates;
+      updateDuplicateStyles();
+      if (duplicates.size) {
+        showToast(`发现 ${groupCount} 组重复 SMILES，已用红色高亮`);
+      } else {
+        showToast("未发现重复的 SMILES");
       }
     }
 
