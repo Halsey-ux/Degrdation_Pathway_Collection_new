@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMILES 树状分子图</title>
+  <link rel="preload" href="RDKit_minimal.wasm" as="fetch" type="application/wasm" crossorigin="anonymous">
+  <style>
+    :root {
+      --panel-bg: #e0e0e0;
+      --panel-border: #c4c4c4;
+      --accent: #0f6ad2;
+      --text: #333;
+      --node-radius: 38px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #fefefe;
+      color: var(--text);
+      min-height: 100vh;
+      width: 100vw;
+      overflow-x: hidden;
+    }
+    .app-shell {
+      width: 100%;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 0;
+      box-shadow: none;
+      overflow: hidden;
+    }
+    header {
+      background: linear-gradient(90deg, #4d83ff, #7bb7ff);
+      color: #fff;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+      padding: 18px 24px;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    button {
+      border: 1px solid #b0b0b0;
+      background: #ededed;
+      color: #444;
+      padding: 6px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      min-width: 48px;
+    }
+    button:hover { background: #e0e0e0; }
+    button:active { transform: translateY(1px); }
+    .builder {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+      padding: 20px 24px;
+      background: #fff;
+      border-bottom: 1px solid var(--panel-border);
+    }
+    .panel {
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfbfb;
+    }
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: #222;
+    }
+    .input-row {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 8px;
+      gap: 4px;
+    }
+    .input-row label {
+      font-size: 13px;
+      color: #555;
+    }
+    .input-row input {
+      padding: 6px 8px;
+      border: 1px solid #cfcfcf;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .builder button {
+      width: 100%;
+      margin-top: 6px;
+    }
+    .hint {
+      font-size: 12px;
+      color: #777;
+      margin: 0 0 6px;
+    }
+    .current-parent {
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: #222;
+    }
+    .current-parent span {
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .status {
+      padding: 10px 24px;
+      border-bottom: 1px solid var(--panel-border);
+      background: #fffdea;
+      color: #8a6d1d;
+      font-size: 14px;
+    }
+    .status.ready {
+      background: #f0fff3;
+      color: #1d7f3c;
+    }
+    .instructions {
+      padding: 12px 24px 16px;
+      font-size: 13px;
+      color: #4a4a4a;
+      border-bottom: 1px solid var(--panel-border);
+      background: #fafafa;
+    }
+    .instructions .actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .instructions .actions button {
+      min-width: 140px;
+    }
+    .canvas-frame {
+      margin: 0 24px 24px;
+      border: 1px solid #d7dce5;
+      border-radius: 12px;
+      background: #fdfdff;
+      box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+    #canvas {
+      width: 100%;
+      height: calc(100vh - 320px);
+      min-height: 420px;
+      display: block;
+    }
+    svg text {
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 12px;
+      fill: #444;
+      pointer-events: none;
+    }
+    .link {
+      fill: none;
+      stroke: #c7c7c7;
+      stroke-width: 1.2px;
+    }
+    .node circle {
+      fill: #ededed;
+      stroke: #d0d0d0;
+      stroke-width: 1px;
+    }
+    .node {
+      cursor: pointer;
+    }
+    .node.selected circle {
+      stroke: var(--accent);
+      stroke-width: 2px;
+    }
+    #toast {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.75);
+      color: white;
+      border-radius: 4px;
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 10;
+    }
+    #toast.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+  <header>Degradation Pathway</header>
+
+  <section class="builder">
+    <div class="panel">
+      <h3>母分子</h3>
+      <div class="input-row">
+        <label for="rootName">名称（可选）</label>
+        <input id="rootName" placeholder="例如：Benzenesulfonyl chloride">
+      </div>
+      <div class="input-row">
+        <label for="rootSmiles">SMILES</label>
+        <input id="rootSmiles" placeholder="输入母分子的 SMILES">
+      </div>
+      <button id="setRootBtn">设置母分子</button>
+    </div>
+    <div class="panel">
+      <h3>子分子</h3>
+      <p class="hint">点击下方任意节点，即可把该节点设置为当前母分子。</p>
+      <div class="current-parent">当前母分子：<span id="selectedLabel">尚未选择</span></div>
+      <div class="input-row">
+        <label for="childName">名称（可选）</label>
+        <input id="childName" placeholder="例如：Hydroquinone">
+      </div>
+      <div class="input-row">
+        <label for="childSmiles">子 SMILES</label>
+        <input id="childSmiles" placeholder="输入要连接的子分子 SMILES">
+      </div>
+      <button id="addChildBtn">添加子分子</button>
+    </div>
+  </section>
+
+  <div id="status" class="status">正在加载 RDKit 内核，请稍候…</div>
+  <div class="instructions">
+    ① 输入母分子的 SMILES 并点击“设置母分子”，下方区域会立即生成结构图。② 点击任意节点可把它设为当前母分子，再输入子 SMILES 添加子节点。③ 鼠标滚轮可缩放，拖动空白区域可平移，保持树状图清晰；每次更新都会自动居中。
+    <div class="actions">
+      <button id="undoBtn" title="撤回上一步">↶ 撤回</button>
+      <button id="redoBtn" title="恢复">↷ 恢复</button>
+      <button id="exportBtn">导出当前 SMILES (CSV)</button>
+      <button id="exportTreeBtn">保存反应路径</button>
+      <button id="importTreeBtn">读取反应路径</button>
+      <input type="file" id="importFileInput" accept=".csv" style="display:none">
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div class="canvas-frame">
+    <svg id="canvas"></svg>
+  </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script>
+    const RDKIT_CDN_BASE = "https://unpkg.com/rdkit-js@2023.9.5";
+    const RDKIT_CDN_JS = `${RDKIT_CDN_BASE}/RDKit_minimal.js`;
+    const RDKIT_CDN_WASM = `${RDKIT_CDN_BASE}/RDKit_minimal.wasm`;
+    const RDKIT_LOCAL_JS = "rdkit_minimal.js";
+    const RDKIT_LOCAL_WASM = "RDKit_minimal.wasm";
+
+    let rdkitInitPromise = null;
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve(src);
+        script.onerror = () => reject(new Error(`加载脚本失败：${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function fetchWasm(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`拉取 wasm 失败：${response.status}`);
+      }
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    }
+
+    function initRdkitModuleWithFallback() {
+      if (!rdkitInitPromise) {
+        rdkitInitPromise = loadScript(RDKIT_LOCAL_JS)
+          .catch(err => {
+            console.warn("CDN 版 RDKit_minimal.js 加载失败，回退到本地文件。", err);
+            return loadScript(RDKIT_CDN_JS);
+          })
+          .then(() => fetchWasm(RDKIT_LOCAL_WASM)
+            .catch(err => {
+              console.warn("CDN wasm 加载失败，回退到本地 wasm。", err);
+              return fetchWasm(RDKIT_CDN_WASM).catch(wasmErr => {
+                console.warn("本地 wasm 也加载失败，将由 Emscripten 自行获取。", wasmErr);
+                return null;
+              });
+            }))
+          .then(wasmBinary => {
+            if (typeof initRDKitModule !== "function") {
+              throw new Error("initRDKitModule 未定义，RDKit 脚本加载失败。");
+            }
+            const moduleConfig = {
+              locateFile: (file) => {
+                if (file.endsWith(".wasm")) {
+                  return wasmBinary ? RDKIT_LOCAL_WASM : RDKIT_CDN_WASM;
+                }
+                return file;
+              }
+            };
+            if (wasmBinary) {
+              moduleConfig.wasmBinary = wasmBinary;
+            }
+            return initRDKitModule(moduleConfig);
+          });
+      }
+      return rdkitInitPromise;
+    }
+
+    const NODE_VERTICAL_SPACING = 180;
+    const toastEl = document.getElementById("toast");
+    const rootNameInput = document.getElementById("rootName");
+    const rootSmilesInput = document.getElementById("rootSmiles");
+    const childNameInput = document.getElementById("childName");
+    const childSmilesInput = document.getElementById("childSmiles");
+    const setRootBtn = document.getElementById("setRootBtn");
+    const addChildBtn = document.getElementById("addChildBtn");
+    const selectedLabel = document.getElementById("selectedLabel");
+    const undoBtn = document.getElementById("undoBtn");
+    const redoBtn = document.getElementById("redoBtn");
+    const exportBtn = document.getElementById("exportBtn");
+    const exportTreeBtn = document.getElementById("exportTreeBtn");
+    const importTreeBtn = document.getElementById("importTreeBtn");
+    const importFileInput = document.getElementById("importFileInput");
+    const statusEl = document.getElementById("status");
+    const svg = d3.select("#canvas");
+    svg.style("display", "block");
+    const g = svg.append("g").attr("class", "viewport");
+    const circleRadius = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--node-radius"), 10);
+    const imageScale = 0.9;
+
+    let zoom = null;
+    let RDKit = null;
+    let isRdkitReady = false;
+    let currentTree = null;
+    let selectedNodeId = null;
+    let idCounter = 0;
+    let toastTimer = null;
+    let pendingTree = null;
+    const historyStack = [];
+    const redoStack = [];
+
+    commitState(null);
+
+    initRdkitModuleWithFallback()
+      .then(instance => {
+        RDKit = instance;
+        isRdkitReady = true;
+        updateStatus("RDKit 已就绪，可直接构建树状图。", true);
+        setupZoom();
+        if (pendingTree) {
+          drawTree(pendingTree);
+          pendingTree = null;
+        }
+      })
+      .catch(err => {
+        console.error("RDKit 加载失败: ", err);
+        updateStatus("RDKit 加载失败：" + err, false);
+        showToast("RDKit 加载失败：" + err, 4000);
+      });
+
+    function updateStatus(text, ready = false) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("ready", ready);
+    }
+
+    function showToast(text, duration = 2500) {
+      if (!text) {
+        toastEl.classList.remove("visible");
+        toastEl.textContent = "";
+        return;
+      }
+      toastEl.textContent = text;
+      toastEl.classList.add("visible");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.classList.remove("visible");
+      }, duration);
+    }
+
+    function nextId() {
+      return `node-${idCounter++}`;
+    }
+
+    function assignIds(node) {
+      if (!node) return;
+      if (!node.id) node.id = nextId();
+      if (node.children) {
+        node.children.forEach(assignIds);
+      }
+    }
+
+    function cloneWithoutSvg(node) {
+      if (!node) return null;
+      const { svg, ...rest } = node;
+      if (rest.children) {
+        rest.children = rest.children.map(cloneWithoutSvg);
+      }
+      return rest;
+    }
+
+    function findNode(node, id) {
+      if (!node) return null;
+      if (node.id === id) return node;
+      if (!node.children) return null;
+      for (const child of node.children) {
+        const found = findNode(child, id);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function updateSelectedLabel() {
+      const selected = findNode(currentTree, selectedNodeId);
+      selectedLabel.textContent = selected ? (selected.name || selected.smiles) : "尚未选择";
+    }
+
+    function setupZoom() {
+      zoom = d3.zoom().scaleExtent([0.35, 3]).on("zoom", event => {
+        g.attr("transform", event.transform);
+      });
+      svg.call(zoom);
+      svg.on("dblclick.zoom", null);
+    }
+
+    function queueRender(tree, fromUserAction = false) {
+      if (!tree) {
+        clearGraph();
+        updateSelectedLabel();
+        return;
+      }
+      if (!RDKit) {
+        pendingTree = tree;
+        if (fromUserAction) {
+          updateStatus("RDKit 正在加载，完成后会立刻绘制当前结构。", false);
+          showToast("RDKit 正在加载，请稍候…", 2000);
+        }
+        return;
+      }
+      updateStatus("RDKit 已就绪，可继续添加节点。", true);
+      drawTree(tree);
+    }
+
+    async function drawTree(tree) {
+      if (!tree) return;
+      try {
+        const prepared = await attachSvgs(tree);
+        const root = d3.hierarchy(prepared);
+        const containerWidth = svg.node().parentNode.clientWidth;
+        const containerHeight = svg.node().parentNode.clientHeight;
+        svg.attr("width", containerWidth).attr("height", containerHeight);
+
+        const treeLayout = d3.tree().nodeSize([160, NODE_VERTICAL_SPACING]);
+        treeLayout(root);
+
+        const links = g.selectAll(".link").data(root.links(), d => d.target.data.id);
+        links.enter()
+          .append("path")
+          .attr("class", "link")
+          .attr("d", d => drawLink(d))
+          .merge(links)
+          .transition().duration(200)
+          .attr("d", d => drawLink(d));
+        links.exit().remove();
+
+        const nodes = g.selectAll(".node").data(root.descendants(), d => d.data.id);
+        const nodeEnter = nodes.enter()
+          .append("g")
+          .attr("class", "node")
+          .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        nodeEnter.append("clipPath")
+          .attr("id", d => `clip-${d.data.id}`)
+          .append("circle")
+          .attr("r", circleRadius);
+
+        nodeEnter.append("circle").attr("r", circleRadius);
+
+        nodeEnter.append("image")
+          .attr("x", -circleRadius * imageScale)
+          .attr("y", -circleRadius * imageScale)
+          .attr("width", circleRadius * 2 * imageScale)
+          .attr("height", circleRadius * 2 * imageScale)
+          .attr("clip-path", d => `url(#clip-${d.data.id})`);
+
+        nodeEnter.append("text")
+        .attr("dy", circleRadius + 16)
+          .attr("text-anchor", "middle");
+
+        const nodeUpdate = nodeEnter.merge(nodes);
+        nodeUpdate
+          .attr("transform", d => `translate(${d.x},${d.y})`)
+          .on("click", (event, d) => {
+            event.stopPropagation();
+            selectNode(d.data.id);
+          })
+          .classed("selected", d => d.data.id === selectedNodeId);
+
+        nodeUpdate.select("image").attr("href", d => d.data.svg);
+        nodeUpdate.select("text").text(d => d.data.name || d.data.smiles);
+        nodes.exit().remove();
+
+      updateSelectedStyles();
+      centerGraph();
+      } catch (err) {
+        console.error(err);
+        showToast("渲染失败：" + err.message, 3500);
+      }
+    }
+
+    function updateSelectedStyles() {
+      g.selectAll(".node").classed("selected", d => d.data.id === selectedNodeId);
+    }
+
+    function commitState(tree) {
+      historyStack.push(JSON.stringify(tree || null));
+      if (historyStack.length > 40) {
+        historyStack.shift();
+      }
+      redoStack.length = 0;
+    }
+
+    function undoLast() {
+      if (historyStack.length <= 1) {
+        showToast("没有可撤回的操作。");
+        return;
+      }
+      const currentState = historyStack.pop();
+      redoStack.push(currentState);
+      const previousState = historyStack[historyStack.length - 1];
+      applyState(previousState);
+      showToast("已撤回上一步。");
+    }
+
+    function redoLast() {
+      if (!redoStack.length) {
+        showToast("没有可恢复的操作。");
+        return;
+      }
+      const state = redoStack.pop();
+      historyStack.push(state);
+      applyState(state);
+      showToast("已恢复操作。");
+    }
+
+    function applyState(state) {
+      try {
+        currentTree = state ? JSON.parse(state) : null;
+        selectedNodeId = currentTree ? currentTree.id : null;
+        updateSelectedLabel();
+        queueRender(currentTree, true);
+        if (currentTree) {
+          centerGraph();
+        } else {
+          clearGraph();
+        }
+      } catch (err) {
+        showToast("状态恢复失败：" + err.message, 3500);
+      }
+    }
+
+    function clearGraph() {
+      g.selectAll(".node").remove();
+      g.selectAll(".link").remove();
+    }
+
+    function centerGraph() {
+      if (!zoom || !g.node()) return;
+      const width = svg.node().clientWidth || window.innerWidth;
+      const height = svg.node().clientHeight || (window.innerHeight - 200);
+      const box = g.node().getBBox();
+      if (!box || !isFinite(box.width) || box.width === 0) return;
+      const scale = Math.min(1.6, Math.max(0.3, Math.min(width / (box.width + 120), height / (box.height + 120))));
+      const tx = (width - (box.x + box.width) * scale) / 2;
+      const ty = Math.max(20, (height - (box.y + box.height) * scale) / 3);
+      svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    }
+
+    function drawLink(link) {
+      const source = { ...link.source };
+      const target = { ...link.target };
+      const angle = Math.atan2(target.y - source.y, target.x - source.x);
+      const offsetX = Math.cos(angle) * circleRadius;
+      const offsetY = Math.sin(angle) * circleRadius;
+
+      source.x += offsetX;
+      source.y += offsetY;
+      target.x -= offsetX;
+      target.y -= offsetY;
+
+      return d3.linkVertical().x(d => d.x).y(d => d.y)({ source, target });
+    }
+
+    async function attachSvgs(node) {
+      async function walk(n) {
+        if (!n || !n.smiles) throw new Error("节点缺少 SMILES。");
+        if (!n.id) n.id = nextId();
+        const mol = RDKit.get_mol(n.smiles);
+        if (!mol) throw new Error("无法解析：" + n.smiles);
+        const svg = mol.get_svg();
+        mol.delete();
+        const encoded = encodeURIComponent(svg);
+        const children = n.children ? await Promise.all(n.children.map(child => walk(child))) : [];
+        return { ...n, svg: `data:image/svg+xml;charset=utf-8,${encoded}`, children };
+      }
+      return walk(JSON.parse(JSON.stringify(node)));
+    }
+
+    function selectNode(id) {
+      const node = findNode(currentTree, id);
+      if (!node) return;
+      selectedNodeId = id;
+      updateSelectedLabel();
+      updateSelectedStyles();
+      showToast(`已选择：${node.name || node.smiles}`);
+    }
+
+    setRootBtn.addEventListener("click", () => {
+      const smiles = rootSmilesInput.value.trim();
+      if (!smiles) {
+        showToast("请先输入母分子的 SMILES。");
+        return;
+      }
+      const name = rootNameInput.value.trim();
+      currentTree = { smiles, children: [] };
+      if (name) currentTree.name = name;
+      assignIds(currentTree);
+      selectedNodeId = currentTree.id;
+      updateSelectedLabel();
+      queueRender(currentTree, true);
+      centerGraph();
+      commitState(currentTree);
+      showToast(isRdkitReady ? "已设置新的母分子。" : "已设置母分子，等待 RDKit 渲染…");
+    });
+
+    addChildBtn.addEventListener("click", () => {
+      if (!currentTree) {
+        showToast("请先设置母分子。");
+        return;
+      }
+      const parent = findNode(currentTree, selectedNodeId);
+      if (!parent) {
+        showToast("请先点击图中的某个节点。");
+        return;
+      }
+      const smiles = childSmilesInput.value.trim();
+      if (!smiles) {
+        showToast("请填写子分子的 SMILES。");
+        return;
+      }
+      const name = childNameInput.value.trim();
+      const newNode = { smiles, children: [] };
+      if (name) newNode.name = name;
+      assignIds(newNode);
+      parent.children = parent.children || [];
+      parent.children.push(newNode);
+      childNameInput.value = "";
+      childSmilesInput.value = "";
+      queueRender(currentTree, true);
+      centerGraph();
+      commitState(currentTree);
+      showToast(isRdkitReady ? `已为 ${parent.name || parent.smiles} 添加子节点。` : "子节点已加入，等待 RDKit 渲染…");
+    });
+
+    exportBtn.addEventListener("click", async () => {
+      if (!currentTree) {
+        showToast("请先设置母分子之后再导出。");
+        return;
+      }
+      try {
+        const smilesList = [];
+        collectSmiles(currentTree, smilesList);
+        const csv = smilesList.join("\r\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const fileName = `smiles_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+        const savedWithPicker = await saveWithPicker(blob, fileName);
+        if (!savedWithPicker) {
+    triggerDownload(blob, fileName);
+      }
+      showToast("已导出当前 SMILES。");
+    } catch (err) {
+      console.error(err);
+      showToast("导出失败：" + err.message, 3500);
+    }
+    });
+
+    exportTreeBtn.addEventListener("click", () => {
+      handleExportTree();
+    });
+
+    importTreeBtn.addEventListener("click", () => {
+      importFileInput.value = "";
+      importFileInput.click();
+    });
+
+    importFileInput.addEventListener("change", event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const text = e.target.result;
+          const tree = parseTreeCsv(text);
+          currentTree = tree;
+          selectedNodeId = currentTree ? currentTree.id : null;
+          updateSelectedLabel();
+          commitState(currentTree);
+          queueRender(currentTree, true);
+          if (currentTree) {
+            centerGraph();
+          }
+          showToast("已载入保存的反应路径。");
+        } catch (err) {
+          console.error(err);
+          showToast("导入失败：" + err.message, 3500);
+        }
+      };
+      reader.onerror = () => {
+        showToast("读取文件失败。", 3500);
+      };
+      reader.readAsText(file, "utf-8");
+    });
+
+    undoBtn.addEventListener("click", () => {
+      undoLast();
+    });
+
+    redoBtn.addEventListener("click", () => {
+      redoLast();
+    });
+
+    window.addEventListener("keydown", event => {
+      if (event.altKey && !event.shiftKey && !event.ctrlKey) {
+        if (event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          undoLast();
+        } else if (event.key.toLowerCase() === "y") {
+          event.preventDefault();
+          redoLast();
+        }
+      }
+    });
+
+    function collectSmiles(node, acc) {
+      if (!node) return;
+      if (node.smiles) {
+        acc.push(node.smiles);
+      }
+      if (node.children) {
+        node.children.forEach(child => collectSmiles(child, acc));
+      }
+    }
+
+    async function handleExportTree() {
+      if (!currentTree) {
+        showToast("请先构建一条反应路径再保存。");
+        return;
+      }
+      try {
+        assignIds(currentTree);
+        const rows = [];
+        collectTreeRows(currentTree, null, rows);
+        const csv = buildTreeCsv(rows);
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const fileName = `pathway_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+        const saved = await saveWithPicker(blob, fileName);
+        if (!saved) {
+          triggerDownload(blob, fileName);
+        }
+        showToast("已保存反应路径。");
+      } catch (err) {
+        console.error(err);
+        showToast("保存失败：" + err.message, 3500);
+      }
+    }
+
+    function collectTreeRows(node, parentId, acc) {
+      if (!node) return;
+      acc.push({
+        id: node.id || "",
+        parentId: parentId || "",
+        name: node.name || "",
+        smiles: node.smiles || ""
+      });
+      if (node.children) {
+        node.children.forEach(child => collectTreeRows(child, node.id, acc));
+      }
+    }
+
+    function buildTreeCsv(rows) {
+      const header = ["id", "parentId", "name", "smiles"];
+      const escape = value => `"${String(value || "").replace(/"/g, '""')}"`;
+      const lines = [header.join(",")];
+      rows.forEach(row => {
+        lines.push(
+          [row.id, row.parentId, row.name, row.smiles].map(escape).join(",")
+        );
+      });
+      return lines.join("\r\n");
+    }
+
+    function parseTreeCsv(text) {
+      const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      if (lines.length < 2) {
+        throw new Error("文件内容为空。");
+      }
+      const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+      const idIdx = header.indexOf("id");
+      const parentIdx = header.indexOf("parentid");
+      const nameIdx = header.indexOf("name");
+      const smilesIdx = header.indexOf("smiles");
+      if (idIdx === -1 || parentIdx === -1 || nameIdx === -1 || smilesIdx === -1) {
+        throw new Error("CSV 需包含 id,parentId,name,smiles 列。");
+      }
+
+      const tempNodes = new Map();
+      lines.slice(1).forEach((line, index) => {
+        if (!line) return;
+        const cols = parseCsvLine(line);
+        const smiles = cols[smilesIdx]?.trim();
+        if (!smiles) {
+          throw new Error(`第 ${index + 2} 行缺少 SMILES。`);
+        }
+        const tempId = cols[idIdx]?.trim() || `row-${index}`;
+        if (tempNodes.has(tempId)) {
+          throw new Error(`CSV 中存在重复 id：${tempId}`);
+        }
+        const node = {
+          name: cols[nameIdx]?.trim() || "",
+          smiles,
+          children: [],
+          _parent: cols[parentIdx]?.trim() || ""
+        };
+        tempNodes.set(tempId, node);
+      });
+
+      let root = null;
+      tempNodes.forEach((node, key) => {
+        const parentKey = node._parent;
+        if (parentKey && tempNodes.has(parentKey)) {
+          tempNodes.get(parentKey).children.push(node);
+        } else {
+          if (root) {
+            throw new Error("存在多个根节点，请检查 parentId 列。");
+          }
+          root = node;
+        }
+        delete node._parent;
+      });
+
+      if (!root) {
+        throw new Error("未找到根节点，请检查 parentId 列。");
+      }
+
+      idCounter = 0;
+      assignIds(root);
+      return root;
+    }
+
+    function parseCsvLine(line) {
+      const result = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (inQuotes) {
+          if (char === '"') {
+            if (line[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            current += char;
+          }
+        } else {
+          if (char === '"') {
+            inQuotes = true;
+          } else if (char === ",") {
+            result.push(current);
+            current = "";
+          } else {
+            current += char;
+          }
+        }
+      }
+      result.push(current);
+      return result;
+    }
+
+    async function saveWithPicker(blob, suggestedName) {
+      if (!window.showSaveFilePicker) return false;
+      const handle = await window.showSaveFilePicker({
+        suggestedName,
+        types: [
+          {
+            description: "CSV 文件",
+            accept: { "text/csv": [".csv"] }
+          }
+        ]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    }
+
+    function triggerDownload(blob, fileName) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
