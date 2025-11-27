@@ -226,8 +226,10 @@
   <div class="instructions">
     ① 输入母分子的 SMILES 并点击“设置母分子”，下方区域会立即生成结构图。② 点击任意节点可把它设为当前母分子，再输入子 SMILES 添加子节点。③ 鼠标滚轮可缩放，拖动空白区域可平移，保持树状图清晰；每次更新都会自动居中。
     <div class="actions">
-      <button id="undoBtn" title="撤回上一步">↶ 撤回</button>
-      <button id="redoBtn" title="恢复">↷ 恢复</button>
+      <button id="undoBtn" title="撤回上一步">↺ 撤回</button>
+      <button id="redoBtn" title="恢复">↻ 恢复</button>
+      <button id="deleteNodeBtn" title="删除当前选中的母分子及其所有子分子">🗑 删除当前分支</button>
+      <button id="checkDuplicatesBtn" title="查找重复的 SMILES 并用红色高亮">🔍 查重</button>
       <button id="exportBtn">导出当前 SMILES (CSV)</button>
       <button id="exportTreeBtn">保存反应路径</button>
       <button id="importTreeBtn">读取反应路径</button>
@@ -320,8 +322,6 @@
     const redoBtn = document.getElementById("redoBtn");
     const deleteNodeBtn = document.getElementById("deleteNodeBtn");
     const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
-    const deleteNodeBtn = document.getElementById("deleteNodeBtn");
-    const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
     const exportBtn = document.getElementById("exportBtn");
     const exportTreeBtn = document.getElementById("exportTreeBtn");
     const importTreeBtn = document.getElementById("importTreeBtn");
@@ -341,7 +341,6 @@
     let idCounter = 0;
     let toastTimer = null;
     let pendingTree = null;
-    let duplicateNodeIds = new Set();
     let duplicateNodeIds = new Set();
     const historyStack = [];
     const redoStack = [];
@@ -422,22 +421,8 @@
         if (child.id === childId) {
           return node;
         }
-        const parent = findParent(child, childId);
-        if (parent) return parent;
-      }
-      return null;
-    }
-
-    function findParent(node, childId) {
-      if (!node || !node.children) return null;
-      for (const child of node.children) {
-        if (child.id === childId) {
-          return node;
-        }
-        const parent = findParent(child, childId);
-        if (parent) {
-          return parent;
-        }
+        const maybe = findParent(child, childId);
+        if (maybe) return maybe;
       }
       return null;
     }
@@ -542,16 +527,12 @@
 
     function updateSelectedStyles() {
       g.selectAll(".node").classed("selected", d => d.data.id === selectedNodeId);
-      updateDuplicateStyles();
-    }
-
-    function updateDuplicateStyles() {
       g.selectAll(".node").classed("duplicate", d => duplicateNodeIds.has(d.data.id));
     }
 
     function clearDuplicateHighlights() {
       duplicateNodeIds.clear();
-      updateDuplicateStyles();
+      g.selectAll(".node").classed("duplicate", false);
     }
 
     function commitState(tree) {
@@ -660,16 +641,16 @@
 
     function deleteSelectedSubtree() {
       if (!currentTree) {
-        showToast("请先设置母分子");
+        showToast("请先设置母分子。");
         return;
       }
       if (!selectedNodeId) {
-        showToast("请先选择要删除的节点");
+        showToast("请先选择要删除的节点。");
         return;
       }
       const target = findNode(currentTree, selectedNodeId);
       if (!target) {
-        showToast("找不到要删除的节点");
+        showToast("找不到要删除的节点。");
         return;
       }
       const label = target.name || target.smiles || "节点";
@@ -679,7 +660,7 @@
       } else {
         const parent = findParent(currentTree, selectedNodeId);
         if (!parent) {
-          showToast("找不到节点的母分子");
+          showToast("无法找到节点的母分子。");
           return;
         }
         parent.children = (parent.children || []).filter(child => child.id !== selectedNodeId);
@@ -708,6 +689,7 @@
       if (name) currentTree.name = name;
       assignIds(currentTree);
       selectedNodeId = currentTree.id;
+      clearDuplicateHighlights();
       updateSelectedLabel();
       queueRender(currentTree, true);
       centerGraph();
@@ -738,6 +720,7 @@
       parent.children.push(newNode);
       childNameInput.value = "";
       childSmilesInput.value = "";
+      clearDuplicateHighlights();
       queueRender(currentTree, true);
       centerGraph();
       commitState(currentTree);
@@ -787,6 +770,7 @@
           selectedNodeId = currentTree ? currentTree.id : null;
           updateSelectedLabel();
           commitState(currentTree);
+          clearDuplicateHighlights();
           queueRender(currentTree, true);
           if (currentTree) {
             centerGraph();
@@ -801,14 +785,6 @@
         showToast("读取文件失败。", 3500);
       };
       reader.readAsText(file, "utf-8");
-    });
-
-    deleteNodeBtn.addEventListener("click", () => {
-      deleteSelectedSubtree();
-    });
-
-    checkDuplicatesBtn.addEventListener("click", () => {
-      checkDuplicateSmiles();
     });
 
     deleteNodeBtn.addEventListener("click", () => {
@@ -865,65 +841,25 @@
 
     function checkDuplicateSmiles() {
       if (!currentTree) {
-        showToast("请先设置母分子");
+        showToast("请先设置母分子或导入反应路径。");
         return;
       }
       assignIds(currentTree);
       const map = new Map();
       collectNodesBySmiles(currentTree, map);
-      const duplicates = new Set();
-      let groupCount = 0;
+      duplicateNodeIds = new Set();
+      let groups = 0;
       map.forEach(ids => {
         if (ids.length > 1) {
-          groupCount += 1;
-          ids.forEach(id => duplicates.add(id));
+          groups += 1;
+          ids.forEach(id => duplicateNodeIds.add(id));
         }
       });
-      duplicateNodeIds = duplicates;
-      updateDuplicateStyles();
-      if (duplicates.size) {
-        showToast(`发现 ${groupCount} 组重复的 SMILES，已用红色高亮`);
+      updateSelectedStyles();
+      if (duplicateNodeIds.size) {
+        showToast(`发现 ${groups} 组重复 SMILES，已用红色高亮。`);
       } else {
-        showToast("未发现重复的 SMILES");
-      }
-    }
-
-    function collectNodesBySmiles(node, map) {
-      if (!node) return;
-      const key = (node.smiles || "").trim();
-      if (key) {
-        if (!map.has(key)) {
-          map.set(key, []);
-        }
-        map.get(key).push(node.id);
-      }
-      if (node.children) {
-        node.children.forEach(child => collectNodesBySmiles(child, map));
-      }
-    }
-
-    function checkDuplicateSmiles() {
-      if (!currentTree) {
-        showToast("请先构建反应路径");
-        return;
-      }
-      assignIds(currentTree);
-      const map = new Map();
-      collectNodesBySmiles(currentTree, map);
-      const duplicates = new Set();
-      let groupCount = 0;
-      map.forEach(ids => {
-        if (ids.length > 1) {
-          groupCount += 1;
-          ids.forEach(id => duplicates.add(id));
-        }
-      });
-      duplicateNodeIds = duplicates;
-      updateDuplicateStyles();
-      if (duplicates.size) {
-        showToast(`发现 ${groupCount} 组重复 SMILES，已用红色高亮`);
-      } else {
-        showToast("未发现重复的 SMILES");
+        showToast("未发现重复的 SMILES。");
       }
     }
 
