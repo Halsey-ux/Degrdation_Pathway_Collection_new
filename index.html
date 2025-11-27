@@ -14,6 +14,10 @@
       --node-radius: 38px;
     }
     * { box-sizing: border-box; }
+    html, body {
+      height: auto;
+      min-height: 100vh;
+    }
     body {
       margin: 0;
       font-family: "Segoe UI", Arial, sans-serif;
@@ -332,6 +336,19 @@
     const g = svg.append("g").attr("class", "viewport");
     const circleRadius = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--node-radius"), 10);
     const imageScale = 0.9;
+
+    function syncFrameHeight() {
+      if (window.frameElement) {
+        const newHeight = document.documentElement.scrollHeight;
+        window.frameElement.style.height = `${newHeight}px`;
+      }
+    }
+
+    if (window.ResizeObserver) {
+      const resizeObserver = new ResizeObserver(syncFrameHeight);
+      resizeObserver.observe(document.body);
+    }
+    window.addEventListener("load", syncFrameHeight);
 
     let zoom = null;
     let RDKit = null;
