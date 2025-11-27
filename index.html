@@ -140,12 +140,23 @@
       border-radius: 12px;
       background: #fdfdff;
       box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.06);
+      min-height: 700px;
     }
     #canvas {
       width: 100%;
-      height: calc(100vh - 320px);
-      min-height: 420px;
       display: block;
+    }
+    .height-control {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #4a4a4a;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .height-control input[type="range"] {
+      width: 220px;
     }
     svg text {
       font-family: "Segoe UI", Arial, sans-serif;
@@ -331,6 +342,9 @@
     const importTreeBtn = document.getElementById("importTreeBtn");
     const importFileInput = document.getElementById("importFileInput");
     const statusEl = document.getElementById("status");
+    const heightSlider = document.getElementById("heightSlider");
+    const heightValue = document.getElementById("heightValue");
+    const canvasFrame = document.querySelector(".canvas-frame");
     const svg = d3.select("#canvas");
     svg.style("display", "block");
     const g = svg.append("g").attr("class", "viewport");
@@ -350,6 +364,18 @@
     }
     window.addEventListener("load", syncFrameHeight);
 
+    function updateCanvasHeight(value) {
+      canvasHeight = Number(value) || 900;
+      if (heightValue) {
+        heightValue.textContent = `${canvasHeight}px`;
+      }
+      svg.attr("height", canvasHeight);
+      if (canvasFrame) {
+        canvasFrame.style.minHeight = `${canvasHeight + 20}px`;
+      }
+      syncFrameHeight();
+    }
+
     let zoom = null;
     let RDKit = null;
     let isRdkitReady = false;
@@ -358,11 +384,21 @@
     let idCounter = 0;
     let toastTimer = null;
     let pendingTree = null;
+    if (heightSlider) {
+      heightSlider.addEventListener("input", event => {
+        updateCanvasHeight(event.target.value);
+        centerGraph();
+      });
+    }
+
     let duplicateNodeIds = new Set();
+    let canvasHeight = Number(heightSlider?.value) || 900;
+    const nodePositions = new Map();
     const historyStack = [];
     const redoStack = [];
 
     commitState(null);
+    updateCanvasHeight(canvasHeight);
 
     initRdkitModuleWithFallback()
       .then(instance => {
@@ -481,11 +517,15 @@
         const prepared = await attachSvgs(tree);
         const root = d3.hierarchy(prepared);
         const containerWidth = svg.node().parentNode.clientWidth;
-        const containerHeight = svg.node().parentNode.clientHeight;
+        const containerHeight = canvasHeight;
         svg.attr("width", containerWidth).attr("height", containerHeight);
 
         const treeLayout = d3.tree().nodeSize([160, NODE_VERTICAL_SPACING]);
         treeLayout(root);
+        nodePositions.clear();
+        root.each(d => {
+          nodePositions.set(d.data.id, { x: d.x, y: d.y });
+        });
 
         const links = g.selectAll(".link").data(root.links(), d => d.target.data.id);
         links.enter()
@@ -614,18 +654,15 @@
 
       let focusX = box.x + box.width / 2;
       let focusY = box.y + box.height / 2;
-      if (selectedNodeId) {
-        const selected = g.selectAll(".node").filter(d => d.data.id === selectedNodeId).node();
-        if (selected) {
-          const point = selected.getCTM();
-          focusX = point.e;
-          focusY = point.f;
-        }
+      if (selectedNodeId && nodePositions.has(selectedNodeId)) {
+        const pos = nodePositions.get(selectedNodeId);
+        focusX = pos.x;
+        focusY = pos.y;
       }
 
       const scale = Math.min(1.6, Math.max(0.3, Math.min(width / (box.width + 120), height / (box.height + 120))));
       const tx = width / 2 - focusX * scale;
-      const ty = height / 2 - focusY * scale;
+      const ty = canvasHeight / 2 - focusY * scale;
 
       svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     }
