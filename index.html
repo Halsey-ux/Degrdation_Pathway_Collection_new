@@ -245,7 +245,7 @@
       <button id="redoBtn" title="恢复">↻ 恢复</button>
       <button id="deleteNodeBtn" title="删除当前选中的母分子及其所有子分子">🗑 删除当前分支</button>
       <button id="checkDuplicatesBtn" title="查找重复的 SMILES 并用红色高亮">🔍 查重</button>
-      <button id="exportBtn">导出当前 SMILES (CSV)</button>
+      <button id="exportBtn">导出当前 m/z</button>
       <button id="exportTreeBtn">保存反应路径</button>
       <button id="importTreeBtn">读取反应路径</button>
       <input type="file" id="importFileInput" accept=".csv" style="display:none">
@@ -265,6 +265,207 @@
     const RDKIT_CDN_WASM = `${RDKIT_CDN_BASE}/RDKit_minimal.wasm`;
     const RDKIT_LOCAL_JS = "rdkit_minimal.js";
     const RDKIT_LOCAL_WASM = "RDKit_minimal.wasm";
+
+    const BASE_ATOMIC_MASSES = {
+      "Ac": 227,
+      "Ag": 107.86822,
+      "Al": 26.98153857,
+      "Am": 243,
+      "Ar": 39.9481,
+      "As": 74.9215956,
+      "At": 210,
+      "Au": 196.9665695,
+      "B": 10.81,
+      "Ba": 137.3277,
+      "Be": 9.01218315,
+      "Bh": 270,
+      "Bi": 208.980401,
+      "Bk": 247,
+      "Br": 79.904,
+      "C": 12.011,
+      "Ca": 40.0784,
+      "Cd": 112.4144,
+      "Ce": 140.1161,
+      "Cf": 251,
+      "Cl": 35.45,
+      "Cm": 247,
+      "Cn": 285,
+      "Co": 58.9331944,
+      "Cr": 51.99616,
+      "Cs": 132.905451966,
+      "Cu": 63.5463,
+      "Db": 268,
+      "Ds": 281,
+      "Dy": 162.5001,
+      "Er": 167.2593,
+      "Es": 252,
+      "Eu": 151.9641,
+      "F": 18.9984031636,
+      "Fe": 55.8452,
+      "Fl": 289,
+      "Fm": 257,
+      "Fr": 223,
+      "Ga": 69.7231,
+      "Gd": 157.253,
+      "Ge": 72.6308,
+      "H": 1.008,
+      "He": 4.0026022,
+      "Hf": 178.492,
+      "Hg": 200.5923,
+      "Ho": 164.930332,
+      "Hs": 269,
+      "I": 126.904473,
+      "In": 114.8181,
+      "Ir": 192.2173,
+      "K": 39.09831,
+      "Kr": 83.7982,
+      "La": 138.905477,
+      "Li": 6.94,
+      "Lr": 266,
+      "Lu": 174.96681,
+      "Lv": 293,
+      "Mc": 289,
+      "Md": 258,
+      "Mg": 24.305,
+      "Mn": 54.9380443,
+      "Mo": 95.951,
+      "Mt": 278,
+      "N": 14.007,
+      "Na": 22.989769282,
+      "Nb": 92.906372,
+      "Nd": 144.2423,
+      "Ne": 20.17976,
+      "Nh": 286,
+      "Ni": 58.69344,
+      "No": 259,
+      "Np": 237,
+      "O": 15.999,
+      "Og": 294,
+      "Os": 190.233,
+      "P": 30.9737619985,
+      "Pa": 231.035882,
+      "Pb": 207.21,
+      "Pd": 106.421,
+      "Pm": 145,
+      "Po": 209,
+      "Pr": 140.907662,
+      "Pt": 195.0849,
+      "Pu": 244,
+      "Ra": 226,
+      "Rb": 85.46783,
+      "Re": 186.2071,
+      "Rf": 267,
+      "Rg": 282,
+      "Rh": 102.905502,
+      "Rn": 222,
+      "Ru": 101.072,
+      "S": 32.06,
+      "Sb": 121.7601,
+      "Sc": 44.9559085,
+      "Se": 78.9718,
+      "Sg": 269,
+      "Si": 28.085,
+      "Sm": 150.362,
+      "Sn": 118.7107,
+      "Sr": 87.621,
+      "Ta": 180.947882,
+      "Tb": 158.925352,
+      "Tc": 98,
+      "Te": 127.603,
+      "Th": 232.03774,
+      "Ti": 47.8671,
+      "Tl": 204.38,
+      "Tm": 168.934222,
+      "Ts": 294,
+      "U": 238.028913,
+      "Uue": 315,
+      "V": 50.94151,
+      "W": 183.841,
+      "Xe": 131.2936,
+      "Y": 88.905842,
+      "Yb": 173.0451,
+      "Zn": 65.382,
+      "Zr": 91.2242
+    };
+
+    const CUSTOM_MASS_OVERRIDES = {
+      C: 12,
+      H: 1.00783,
+      O: 15.99491,
+      N: 14.00307,
+      S: 31.97207,
+      Cl: 34.96885
+    };
+
+    const atomicMassTable = Object.assign({}, BASE_ATOMIC_MASSES, CUSTOM_MASS_OVERRIDES);
+    const MZ_DECIMAL_PLACES = 5;
+
+    function getAtomicMass(symbol) {
+      if (!symbol) return null;
+      const normalized = symbol.trim();
+      if (!normalized) return null;
+      if (Object.prototype.hasOwnProperty.call(atomicMassTable, normalized)) {
+        return atomicMassTable[normalized];
+      }
+      return null;
+    }
+
+    function extractAtomSymbolsFromMolBlock(molBlock) {
+      if (!molBlock) return [];
+      const lines = molBlock.split(/\r?\n/);
+      const countsIdx = lines.findIndex(line => /V(2000|3000)/.test(line));
+      if (countsIdx === -1) {
+        return [];
+      }
+      const countsLine = lines[countsIdx];
+      let atomCount = parseInt(countsLine.slice(0, 3).trim(), 10);
+      if (Number.isNaN(atomCount)) {
+        const match = countsLine.trim().match(/^(\d+)/);
+        atomCount = match ? parseInt(match[1], 10) : 0;
+      }
+      const symbols = [];
+      for (let i = 0; i < atomCount; i++) {
+        const atomLine = lines[countsIdx + 1 + i] || "";
+        const symbol = atomLine.slice(31, 34).trim() || atomLine.trim().split(/\s+/)[3] || "";
+        if (symbol) {
+          symbols.push(symbol);
+        }
+      }
+      return symbols;
+    }
+
+    function computeMzFromSmiles(smiles) {
+      if (!RDKit) {
+        throw new Error("RDKit 尚未加载，无法计算 m/z。");
+      }
+      const mol = RDKit.get_mol(smiles);
+      if (!mol) {
+        throw new Error(`无法解析 SMILES：${smiles}`);
+      }
+      try {
+        const molBlock = mol.get_molblock();
+        const symbols = extractAtomSymbolsFromMolBlock(molBlock);
+        if (!symbols.length) {
+          throw new Error("未能解析分子原子信息。");
+        }
+        return symbols.reduce((sum, symbol) => {
+          const mass = getAtomicMass(symbol);
+          if (mass == null) {
+            throw new Error(`缺少元素 ${symbol} 的原子质量数据。`);
+          }
+          return sum + mass;
+        }, 0);
+      } finally {
+        mol.delete();
+      }
+    }
+
+    function formatMzValue(value) {
+      if (!Number.isFinite(value)) return "";
+      const fixed = value.toFixed(MZ_DECIMAL_PLACES);
+      const trimmed = fixed.replace(/\.?0+$/, "");
+      return trimmed || "0";
+    }
 
     let rdkitInitPromise = null;
 
@@ -799,21 +1000,30 @@
         showToast("请先设置母分子之后再导出。");
         return;
       }
+      if (!RDKit || !isRdkitReady) {
+        showToast("RDKit 尚未就绪，无法计算 m/z。");
+        return;
+      }
       try {
-        const smilesList = [];
-        collectSmiles(currentTree, smilesList);
-        const csv = smilesList.join("\r\n");
-        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-        const fileName = `smiles_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+        const nodes = [];
+        collectNodes(currentTree, nodes);
+        if (!nodes.length) {
+          showToast("没有可导出的节点。");
+          return;
+        }
+        const mzValues = nodes.map(node => formatMzValue(computeMzFromSmiles(node.smiles)));
+        const mzText = mzValues.join(",");
+        const blob = new Blob([mzText], { type: "text/plain;charset=utf-8" });
+        const fileName = `mz_${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
         const savedWithPicker = await saveWithPicker(blob, fileName);
         if (!savedWithPicker) {
-    triggerDownload(blob, fileName);
+          triggerDownload(blob, fileName);
+        }
+        showToast("已导出各节点的 m/z。");
+      } catch (err) {
+        console.error(err);
+        showToast("导出失败：" + err.message, 3500);
       }
-      showToast("已导出当前 SMILES。");
-    } catch (err) {
-      console.error(err);
-      showToast("导出失败：" + err.message, 3500);
-    }
     });
 
     exportTreeBtn.addEventListener("click", () => {
@@ -882,13 +1092,11 @@
       }
     });
 
-    function collectSmiles(node, acc) {
+    function collectNodes(node, acc) {
       if (!node) return;
-      if (node.smiles) {
-        acc.push(node.smiles);
-      }
+      acc.push(node);
       if (node.children) {
-        node.children.forEach(child => collectSmiles(child, acc));
+        node.children.forEach(child => collectNodes(child, acc));
       }
     }
 
