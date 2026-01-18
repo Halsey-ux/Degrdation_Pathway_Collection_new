@@ -1011,15 +1011,18 @@
           showToast("没有可导出的节点。");
           return;
         }
-        const mzValues = nodes.map(node => formatMzValue(computeMzFromSmiles(node.smiles)));
-        const mzText = mzValues.join(",");
-        const blob = new Blob([mzText], { type: "text/plain;charset=utf-8" });
-        const fileName = `mz_${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+        const lines = nodes.map(node => {
+          const mzValue = formatMzValue(computeMzFromSmiles(node.smiles));
+          return `${node.smiles},${mzValue}`;
+        });
+        const output = lines.join("\r\n");
+        const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
+        const fileName = `smiles_mz_${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
         const savedWithPicker = await saveWithPicker(blob, fileName);
         if (!savedWithPicker) {
           triggerDownload(blob, fileName);
         }
-        showToast("已导出各节点的 m/z。");
+        showToast("已导出 SMILES 与 m/z。");
       } catch (err) {
         console.error(err);
         showToast("导出失败：" + err.message, 3500);
