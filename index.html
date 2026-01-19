@@ -461,6 +461,19 @@
       return symbols;
     }
 
+    function buildFormulaFromSymbols(symbols) {
+      const counts = {};
+      symbols.forEach(symbol => {
+        counts[symbol] = (counts[symbol] || 0) + 1;
+      });
+      const order = ["C", "H"];
+      const rest = Object.keys(counts)
+        .filter(key => !order.includes(key))
+        .sort();
+      const parts = [...order.filter(key => counts[key]), ...rest].map(key => `${key}${counts[key]}`);
+      return parts.join(" ");
+    }
+
     function computeMzFromSmiles(smiles) {
       if (!RDKit) {
         throw new Error("RDKit 尚未加载，无法计算 m/z。");
@@ -503,6 +516,51 @@
           molHs.delete();
         }
         return mass;
+      } finally {
+        mol.delete();
+      }
+    }
+
+    function getFormulaAndMass(smiles) {
+      if (!RDKit) {
+        throw new Error("RDKit 尚未加载，无法计算分子式。");
+      }
+      const mol = RDKit.get_mol(smiles);
+      if (!mol) {
+        throw new Error(`无法解析 SMILES：${smiles}`);
+      }
+      let molHs = null;
+      try {
+        let molBlock = null;
+        if (typeof mol.add_hs === "function") {
+          try {
+            const added = mol.add_hs();
+            if (added && typeof added.get_molblock === "function") {
+              molHs = added;
+              molBlock = molHs.get_molblock();
+            } else if (typeof added === "string") {
+              molBlock = added;
+            }
+          } catch (err) {
+            // Fallback to implicit H if add_hs is unavailable.
+          }
+        }
+        if (!molBlock) {
+          molBlock = mol.get_molblock();
+        }
+        const symbols = extractAtomSymbolsFromMolBlock(molBlock);
+        const formula = buildFormulaFromSymbols(symbols);
+        const mass = symbols.reduce((sum, symbol) => {
+          const mass = getAtomicMass(symbol);
+          if (mass == null) {
+            throw new Error(`缺少元素 ${symbol} 的原子质量数据。`);
+          }
+          return sum + mass;
+        }, 0);
+        if (molHs) {
+          molHs.delete();
+        }
+        return { formula, mass };
       } finally {
         mol.delete();
       }
@@ -1148,9 +1206,9 @@
         ensureExplicitSmilesForTree(currentTree);
         const lines = nodes.map(node => {
           const explicitSmiles = getExplicitSmiles(node.smiles);
-          const baseMass = computeMzFromSmiles(explicitSmiles);
-          const mzValue = formatMzValue(applyIonMode(baseMass));
-          return `${explicitSmiles},${mzValue}`;
+          const { formula, mass } = getFormulaAndMass(explicitSmiles);
+          const mzValue = formatMzValue(applyIonMode(mass));
+          return `${explicitSmiles},${formula},${mzValue}`;
         });
         const output = lines.join("\r\n");
         const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
