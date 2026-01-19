@@ -134,6 +134,14 @@
     .instructions .actions button {
       min-width: 140px;
     }
+    .instructions .actions select {
+      min-width: 140px;
+      padding: 6px 8px;
+      border: 1px solid #b0b0b0;
+      border-radius: 4px;
+      background: #fff;
+      color: #444;
+    }
     .canvas-frame {
       margin: 0 24px 24px;
       border: 1px solid #d7dce5;
@@ -246,6 +254,11 @@
       <button id="deleteNodeBtn" title="删除当前选中的母分子及其所有子分子">🗑 删除当前分支</button>
       <button id="checkDuplicatesBtn" title="查找重复的 SMILES 并用红色高亮">🔍 查重</button>
       <button id="exportBtn">导出当前 m/z</button>
+      <select id="ionMode" title="选择电离模式">
+        <option value="neutral">中性模式</option>
+        <option value="positive">正离子模式 (+H)</option>
+        <option value="negative">负离子模式 (-H)</option>
+      </select>
       <button id="exportTreeBtn">保存反应路径</button>
       <button id="importTreeBtn">读取反应路径</button>
       <input type="file" id="importFileInput" accept=".csv" style="display:none">
@@ -399,6 +412,7 @@
 
     const atomicMassTable = Object.assign({}, BASE_ATOMIC_MASSES, CUSTOM_MASS_OVERRIDES);
     const MZ_DECIMAL_PLACES = 5;
+    const PROTON_MASS = 1.0078;
 
     function getAtomicMass(symbol) {
       if (!symbol) return null;
@@ -443,21 +457,47 @@
         throw new Error(`无法解析 SMILES：${smiles}`);
       }
       try {
-        const molBlock = mol.get_molblock();
+        let molForCalc = mol;
+        if (typeof mol.add_hs === "function") {
+          try {
+            const molHs = mol.add_hs();
+            if (molHs) {
+              molForCalc = molHs;
+            }
+          } catch (err) {
+            // Fallback to implicit H if add_hs is unavailable.
+          }
+        }
+        const molBlock = molForCalc.get_molblock();
         const symbols = extractAtomSymbolsFromMolBlock(molBlock);
         if (!symbols.length) {
           throw new Error("未能解析分子原子信息。");
         }
-        return symbols.reduce((sum, symbol) => {
+        const mass = symbols.reduce((sum, symbol) => {
           const mass = getAtomicMass(symbol);
           if (mass == null) {
             throw new Error(`缺少元素 ${symbol} 的原子质量数据。`);
           }
           return sum + mass;
         }, 0);
+        if (molForCalc !== mol) {
+          molForCalc.delete();
+        }
+        return mass;
       } finally {
         mol.delete();
       }
+    }
+
+    function applyIonMode(baseMass) {
+      const mode = ionModeSelect ? ionModeSelect.value : "neutral";
+      if (mode === "positive") {
+        return baseMass + PROTON_MASS;
+      }
+      if (mode === "negative") {
+        return baseMass - PROTON_MASS;
+      }
+      return baseMass;
     }
 
     function formatMzValue(value) {
@@ -542,6 +582,7 @@
     const exportTreeBtn = document.getElementById("exportTreeBtn");
     const importTreeBtn = document.getElementById("importTreeBtn");
     const importFileInput = document.getElementById("importFileInput");
+    const ionModeSelect = document.getElementById("ionMode");
     const statusEl = document.getElementById("status");
     const heightSlider = document.getElementById("heightSlider");
     const heightValue = document.getElementById("heightValue");
@@ -1012,7 +1053,8 @@
           return;
         }
         const lines = nodes.map(node => {
-          const mzValue = formatMzValue(computeMzFromSmiles(node.smiles));
+          const baseMass = computeMzFromSmiles(node.smiles);
+          const mzValue = formatMzValue(applyIonMode(baseMass));
           return `${node.smiles},${mzValue}`;
         });
         const output = lines.join("\r\n");
