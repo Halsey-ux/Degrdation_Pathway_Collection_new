@@ -840,6 +840,9 @@
     async function drawTree(tree) {
       if (!tree) return;
       try {
+        if (RDKit && isRdkitReady) {
+          ensureExplicitSmilesForTree(tree);
+        }
         const prepared = await attachSvgs(tree);
         const root = d3.hierarchy(prepared);
         const containerWidth = svg.node().parentNode.clientWidth;
