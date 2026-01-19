@@ -142,6 +142,17 @@
       background: #fff;
       color: #444;
     }
+    .info-panel {
+      margin: 0 24px 16px;
+      padding: 10px 12px;
+      border: 1px dashed #c4c4c4;
+      border-radius: 8px;
+      background: #fffdf5;
+      font-size: 13px;
+      color: #4a4a4a;
+      display: none;
+      white-space: pre-wrap;
+    }
     .canvas-frame {
       margin: 0 24px 24px;
       border: 1px solid #d7dce5;
@@ -259,12 +270,14 @@
         <option value="positive">正离子模式 (+H)</option>
         <option value="negative">负离子模式 (-H)</option>
       </select>
+      <button id="showExplicitBtn">显示显式 H 信息</button>
       <button id="exportTreeBtn">保存反应路径</button>
       <button id="importTreeBtn">读取反应路径</button>
       <input type="file" id="importFileInput" accept=".csv" style="display:none">
     </div>
   </div>
 
+  <div id="explicitInfo" class="info-panel"></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <div class="canvas-frame">
     <svg id="canvas"></svg>
@@ -551,6 +564,23 @@
       return trimmed || "0";
     }
 
+    function ensureExplicitSmiles(node) {
+      if (!node || !node.smiles) return null;
+      const explicit = getExplicitSmiles(node.smiles);
+      if (explicit && explicit !== node.smiles) {
+        node.smiles = explicit;
+      }
+      return node.smiles;
+    }
+
+    function ensureExplicitSmilesForTree(node) {
+      if (!node) return;
+      ensureExplicitSmiles(node);
+      if (node.children) {
+        node.children.forEach(child => ensureExplicitSmilesForTree(child));
+      }
+    }
+
     let rdkitInitPromise = null;
 
     function loadScript(src) {
@@ -623,10 +653,12 @@
     const deleteNodeBtn = document.getElementById("deleteNodeBtn");
     const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
     const exportBtn = document.getElementById("exportBtn");
+    const showExplicitBtn = document.getElementById("showExplicitBtn");
     const exportTreeBtn = document.getElementById("exportTreeBtn");
     const importTreeBtn = document.getElementById("importTreeBtn");
     const importFileInput = document.getElementById("importFileInput");
     const ionModeSelect = document.getElementById("ionMode");
+    const explicitInfoEl = document.getElementById("explicitInfo");
     const statusEl = document.getElementById("status");
     const heightSlider = document.getElementById("heightSlider");
     const heightValue = document.getElementById("heightValue");
@@ -692,7 +724,15 @@
         isRdkitReady = true;
         updateStatus("RDKit 已就绪，可直接构建树状图。", true);
         setupZoom();
+        if (currentTree) {
+          ensureExplicitSmilesForTree(currentTree);
+          updateSelectedLabel();
+          if (!pendingTree) {
+            queueRender(currentTree, true);
+          }
+        }
         if (pendingTree) {
+          ensureExplicitSmilesForTree(pendingTree);
           drawTree(pendingTree);
           pendingTree = null;
         }
@@ -1039,6 +1079,9 @@
       }
       const name = rootNameInput.value.trim();
       currentTree = { smiles, children: [] };
+      if (RDKit && isRdkitReady) {
+        currentTree.smiles = getExplicitSmiles(currentTree.smiles);
+      }
       if (name) currentTree.name = name;
       assignIds(currentTree);
       selectedNodeId = currentTree.id;
@@ -1067,6 +1110,9 @@
       }
       const name = childNameInput.value.trim();
       const newNode = { smiles, children: [] };
+      if (RDKit && isRdkitReady) {
+        newNode.smiles = getExplicitSmiles(newNode.smiles);
+      }
       if (name) newNode.name = name;
       assignIds(newNode);
       parent.children = parent.children || [];
@@ -1096,9 +1142,10 @@
           showToast("没有可导出的节点。");
           return;
         }
+        ensureExplicitSmilesForTree(currentTree);
         const lines = nodes.map(node => {
           const explicitSmiles = getExplicitSmiles(node.smiles);
-          const baseMass = computeMzFromSmiles(node.smiles);
+          const baseMass = computeMzFromSmiles(explicitSmiles);
           const mzValue = formatMzValue(applyIonMode(baseMass));
           return `${explicitSmiles},${mzValue}`;
         });
@@ -1120,6 +1167,44 @@
       handleExportTree();
     });
 
+    showExplicitBtn.addEventListener("click", () => {
+      if (!currentTree) {
+        showToast("请先设置母分子。");
+        return;
+      }
+      if (!RDKit || !isRdkitReady) {
+        showToast("RDKit 尚未就绪，无法生成显式 H 信息。");
+        return;
+      }
+      const node = findNode(currentTree, selectedNodeId);
+      if (!node) {
+        showToast("请先选择一个节点。");
+        return;
+      }
+      try {
+        const explicitSmiles = ensureExplicitSmiles(node);
+        const baseMass = computeMzFromSmiles(node.smiles);
+        const positiveMz = formatMzValue(baseMass + PROTON_MASS);
+        const negativeMz = formatMzValue(baseMass - PROTON_MASS);
+        const info = [
+          `显式 H SMILES: ${explicitSmiles}`,
+          `中性质量 m: ${formatMzValue(baseMass)}`,
+          `正离子模式 m/z: ${positiveMz}`,
+          `负离子模式 m/z: ${negativeMz}`
+        ].join("\n");
+        if (explicitInfoEl) {
+          explicitInfoEl.textContent = info;
+          explicitInfoEl.style.display = "block";
+        }
+        updateSelectedLabel();
+        queueRender(currentTree, true);
+        showToast("已生成显式 H 信息。");
+      } catch (err) {
+        console.error(err);
+        showToast("生成失败：" + err.message, 3500);
+      }
+    });
+
     importTreeBtn.addEventListener("click", () => {
       importFileInput.value = "";
       importFileInput.click();
@@ -1138,6 +1223,9 @@
           updateSelectedLabel();
           commitState(currentTree);
           clearDuplicateHighlights();
+          if (RDKit && isRdkitReady && currentTree) {
+            ensureExplicitSmilesForTree(currentTree);
+          }
           queueRender(currentTree, true);
           if (currentTree) {
             centerGraph();
