@@ -457,18 +457,24 @@
         throw new Error(`无法解析 SMILES：${smiles}`);
       }
       try {
-        let molForCalc = mol;
+        let molBlock = null;
+        let molHs = null;
         if (typeof mol.add_hs === "function") {
           try {
-            const molHs = mol.add_hs();
-            if (molHs) {
-              molForCalc = molHs;
+            const added = mol.add_hs();
+            if (added && typeof added.get_molblock === "function") {
+              molHs = added;
+              molBlock = molHs.get_molblock();
+            } else if (typeof added === "string") {
+              molBlock = added;
             }
           } catch (err) {
             // Fallback to implicit H if add_hs is unavailable.
           }
         }
-        const molBlock = molForCalc.get_molblock();
+        if (!molBlock) {
+          molBlock = mol.get_molblock();
+        }
         const symbols = extractAtomSymbolsFromMolBlock(molBlock);
         if (!symbols.length) {
           throw new Error("未能解析分子原子信息。");
@@ -480,11 +486,49 @@
           }
           return sum + mass;
         }, 0);
-        if (molForCalc !== mol) {
-          molForCalc.delete();
+        if (molHs) {
+          molHs.delete();
         }
         return mass;
       } finally {
+        mol.delete();
+      }
+    }
+
+    function getExplicitSmiles(smiles) {
+      if (!RDKit) {
+        throw new Error("RDKit 尚未加载，无法生成显式氢 SMILES。");
+      }
+      const mol = RDKit.get_mol(smiles);
+      if (!mol) {
+        throw new Error(`无法解析 SMILES：${smiles}`);
+      }
+      let molHs = null;
+      try {
+        if (typeof mol.add_hs === "function") {
+          try {
+            const added = mol.add_hs();
+            if (added && typeof added.get_smiles === "function") {
+              molHs = added;
+            }
+          } catch (err) {
+            // Fallback to implicit H if add_hs is unavailable.
+          }
+        }
+        const molForSmiles = molHs || mol;
+        try {
+          return molForSmiles.get_smiles({
+            canonical: true,
+            isomericSmiles: true,
+            allHsExplicit: true
+          });
+        } catch (err) {
+          return molForSmiles.get_smiles();
+        }
+      } finally {
+        if (molHs) {
+          molHs.delete();
+        }
         mol.delete();
       }
     }
@@ -1053,9 +1097,10 @@
           return;
         }
         const lines = nodes.map(node => {
+          const explicitSmiles = getExplicitSmiles(node.smiles);
           const baseMass = computeMzFromSmiles(node.smiles);
           const mzValue = formatMzValue(applyIonMode(baseMass));
-          return `${node.smiles},${mzValue}`;
+          return `${explicitSmiles},${mzValue}`;
         });
         const output = lines.join("\r\n");
         const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
