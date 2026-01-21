@@ -273,7 +273,7 @@
       <button id="showExplicitBtn">显示显式 H 信息</button>
       <button id="exportTreeBtn">保存反应路径</button>
       <button id="importTreeBtn">读取反应路径</button>
-      <input type="file" id="importFileInput" accept=".csv" style="display:none">
+      <input type="file" id="importFileInput" accept=".csv" style="position: fixed; left: -9999px; opacity: 0; width: 1px; height: 1px;">
     </div>
   </div>
 
@@ -1305,6 +1305,10 @@ exportTreeBtn.addEventListener("click", () => {
     });
 
     importTreeBtn.addEventListener("click", () => {
+      if (!importFileInput) {
+        showToast("找不到文件选择控件。");
+        return;
+      }
       importFileInput.value = "";
       importFileInput.click();
     });
