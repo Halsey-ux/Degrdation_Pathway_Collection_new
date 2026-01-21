@@ -711,6 +711,7 @@
     const deleteNodeBtn = document.getElementById("deleteNodeBtn");
     const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
     const exportBtn = document.getElementById("exportBtn");
+    const exportMzBtn = document.getElementById("exportMzBtn");
     const showExplicitBtn = document.getElementById("showExplicitBtn");
     const exportTreeBtn = document.getElementById("exportTreeBtn");
     const importTreeBtn = document.getElementById("importTreeBtn");
@@ -1224,7 +1225,44 @@
       }
     });
 
-    exportTreeBtn.addEventListener("click", () => {
+    
+    exportMzBtn.addEventListener("click", async () => {
+      if (!currentTree) {
+        showToast("?????????????");
+        return;
+      }
+      if (!RDKit || !isRdkitReady) {
+        showToast("RDKit ????????? m/z?");
+        return;
+      }
+      try {
+        const nodes = [];
+        collectNodes(currentTree, nodes);
+        if (!nodes.length) {
+          showToast("?????????");
+          return;
+        }
+        ensureExplicitSmilesForTree(currentTree);
+        const mzValues = nodes.map(node => {
+          const explicitSmiles = getExplicitSmiles(node.smiles);
+          const { mass } = getFormulaAndMass(explicitSmiles);
+          return formatMzValue(applyIonMode(mass));
+        });
+        const mzText = mzValues.join(",");
+        const blob = new Blob([mzText], { type: "text/plain;charset=utf-8" });
+        const fileName = `mz_${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+        const savedWithPicker = await saveWithPicker(blob, fileName);
+        if (!savedWithPicker) {
+          triggerDownload(blob, fileName);
+        }
+        showToast("????? m/z?");
+      } catch (err) {
+        console.error(err);
+        showToast("?????" + err.message, 3500);
+      }
+    });
+
+exportTreeBtn.addEventListener("click", () => {
       handleExportTree();
     });
 
