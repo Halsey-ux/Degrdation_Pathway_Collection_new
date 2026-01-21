@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SMILES 树状分子图</title>
-  <link rel="preload" href="RDKit_minimal.wasm" as="fetch" type="application/wasm" crossorigin="anonymous">
+  
   <style>
     :root {
       --panel-bg: #e0e0e0;
@@ -291,6 +291,7 @@
     const RDKIT_CDN_WASM = `${RDKIT_CDN_BASE}/RDKit_minimal.wasm`;
     const RDKIT_LOCAL_JS = "rdkit_minimal.js";
     const RDKIT_LOCAL_WASM = "RDKit_minimal.wasm";
+    window.__rdkitUseCdnWasm = true;
 
     const BASE_ATOMIC_MASSES = {
       "Ac": 227,
@@ -658,44 +659,51 @@
         throw new Error(`拉取 wasm 失败：${response.status}`);
       }
       const buffer = await response.arrayBuffer();
-      return new Uint8Array(buffer);
+      return buffer;
     }
 
     function initRdkitModuleWithFallback() {
       if (!rdkitInitPromise) {
-        rdkitInitPromise = loadScript(RDKIT_CDN_JS)
+        const tryCdnFirst = loadScript(RDKIT_CDN_JS)
           .catch(err => {
-            console.warn("CDN 版 RDKit_minimal.js 加载失败，回退到本地文件。", err);
+            console.warn("CDN ? RDKit_minimal.js ?????????????", err);
             return loadScript(RDKIT_LOCAL_JS);
-          })
-          .then(() => fetchWasm(RDKIT_CDN_WASM)
-            .catch(err => {
-              console.warn("CDN wasm 加载失败，回退到本地 wasm。", err);
-              return fetchWasm(RDKIT_LOCAL_WASM).catch(wasmErr => {
-                console.warn("本地 wasm 也加载失败，将由 Emscripten 自行获取。", wasmErr);
-                return null;
-              });
-            }))
-          .then(wasmBinary => {
-            if (typeof initRDKitModule !== "function") {
-              throw new Error("initRDKitModule 未定义，RDKit 脚本加载失败。");
-            }
-            const moduleConfig = {
-              locateFile: (file) => {
-                if (file.endsWith(".wasm")) {
-                  return wasmBinary ? RDKIT_LOCAL_WASM : RDKIT_CDN_WASM;
-                }
-                return file;
-              }
-            };
-            if (wasmBinary) {
-              moduleConfig.wasmBinary = wasmBinary;
-            }
-            return initRDKitModule(moduleConfig);
           });
+
+        rdkitInitPromise = tryCdnFirst.then(() => {
+          if (typeof initRDKitModule !== "function") {
+            throw new Error("initRDKitModule ????RDKit ???????");
+          }
+          const moduleConfig = {
+            locateFile: (file) => {
+              if (file.endsWith(".wasm")) {
+                return (window.__rdkitUseCdnWasm ? RDKIT_CDN_WASM : RDKIT_LOCAL_WASM);
+              }
+              return file;
+            }
+          };
+          return initRDKitModule(moduleConfig);
+        }).catch(err => {
+          // ?? CDN ???????? wasm ??
+          window.__rdkitUseCdnWasm = false;
+          if (typeof initRDKitModule !== "function") {
+            throw err;
+          }
+          const moduleConfig = {
+            locateFile: (file) => {
+              if (file.endsWith(".wasm")) {
+                return RDKIT_LOCAL_WASM;
+              }
+              return file;
+            }
+          };
+          return initRDKitModule(moduleConfig);
+        });
       }
       return rdkitInitPromise;
     }
+
+
 
     const NODE_VERTICAL_SPACING = 180;
     const toastEl = document.getElementById("toast");
@@ -711,7 +719,6 @@
     const deleteNodeBtn = document.getElementById("deleteNodeBtn");
     const checkDuplicatesBtn = document.getElementById("checkDuplicatesBtn");
     const exportBtn = document.getElementById("exportBtn");
-    const exportMzBtn = document.getElementById("exportMzBtn");
     const exportMzBtn = document.getElementById("exportMzBtn");
     const showExplicitBtn = document.getElementById("showExplicitBtn");
     const exportTreeBtn = document.getElementById("exportTreeBtn");
