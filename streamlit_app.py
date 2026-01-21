@@ -60,6 +60,7 @@ def load_html():
 
     js_data_uri = encode_data_uri("rdkit_minimal.js", "application/javascript")
     wasm_data_uri = encode_data_uri("RDKit_minimal.wasm", "application/wasm")
+    d3_data_uri = encode_data_uri("d3.v7.min.js", "application/javascript")
 
     replacements = {}
     if js_data_uri:
@@ -67,6 +68,8 @@ def load_html():
         replacements['const RDKIT_LOCAL_JS = "rdkit_minimal.js";'] = (
             f'const RDKIT_LOCAL_JS = "{js_data_uri}";'
         )
+    if d3_data_uri:
+        replacements['src="d3.v7.min.js"'] = f'src="{d3_data_uri}"'
     if wasm_data_uri:
         replacements['href="RDKit_minimal.wasm"'] = f'href="{wasm_data_uri}"'
         replacements['const RDKIT_LOCAL_WASM = "RDKit_minimal.wasm";'] = (
