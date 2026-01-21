@@ -291,7 +291,7 @@
     const RDKIT_CDN_WASM = `${RDKIT_CDN_BASE}/RDKit_minimal.wasm`;
     const RDKIT_LOCAL_JS = "rdkit_minimal.js";
     const RDKIT_LOCAL_WASM = "RDKit_minimal.wasm";
-    window.__rdkitUseCdnWasm = true;
+    window.__rdkitUseCdnWasm = false;
 
     const BASE_ATOMIC_MASSES = {
       "Ac": 227,
@@ -664,13 +664,18 @@
 
     function initRdkitModuleWithFallback() {
       if (!rdkitInitPromise) {
-        const tryCdnFirst = loadScript(RDKIT_CDN_JS)
+        const tryLocalFirst = loadScript(RDKIT_LOCAL_JS)
           .catch(err => {
-            console.warn("CDN ? RDKit_minimal.js ?????????????", err);
-            return loadScript(RDKIT_LOCAL_JS);
+            console.warn("Local RDKit_minimal.js load failed.", err);
+            return loadScript(RDKIT_CDN_JS);
           });
 
-        rdkitInitPromise = tryCdnFirst.then(() => {
+        rdkitInitPromise = tryLocalFirst.then(async (loadedSrc) => {
+          window.__rdkitUseCdnWasm = loadedSrc === RDKIT_CDN_JS;
+          if (typeof initRDKitModule !== "function" && loadedSrc !== RDKIT_CDN_JS) {
+            await loadScript(RDKIT_CDN_JS);
+            window.__rdkitUseCdnWasm = true;
+          }
           if (typeof initRDKitModule !== "function") {
             throw new Error("initRDKitModule ????RDKit ???????");
           }

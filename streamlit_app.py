@@ -43,10 +43,8 @@ def load_html():
 
     with open(html_file, "r", encoding="utf-8") as f:
         content = f.read()
-    inline_assets = os.environ.get("INLINE_RDKIT", "").lower() in {"1", "true", "yes"}
-    if not inline_assets:
-        return content
-    inline_assets = os.environ.get("INLINE_RDKIT", "").lower() in {"1", "true", "yes"}
+    inline_assets = os.environ.get("INLINE_RDKIT", "").lower()
+    inline_assets = inline_assets not in {"0", "false", "no"}
     if not inline_assets:
         return content
 
