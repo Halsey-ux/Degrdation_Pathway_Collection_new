@@ -1226,7 +1226,8 @@
     });
 
     
-    exportMzBtn.addEventListener("click", async () => {
+    if (exportMzBtn) {
+      exportMzBtn.addEventListener("click", async () => {
       if (!currentTree) {
         showToast("?????????????");
         return;
@@ -1260,7 +1261,8 @@
         console.error(err);
         showToast("?????" + err.message, 3500);
       }
-    });
+      });
+    }
 
 exportTreeBtn.addEventListener("click", () => {
       handleExportTree();
