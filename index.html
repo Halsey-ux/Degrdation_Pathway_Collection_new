@@ -225,61 +225,61 @@
 </head>
 <body>
   <div class="app-shell">
-  <header>Degradation Pathway</header>
+  <header>降解路径</header>
 
   <section class="builder">
     <div class="panel">
-      <h3>Parent Molecule</h3>
+      <h3>母分子</h3>
       <div class="input-row">
-        <label for="rootName">Name (optional)</label>
-        <input id="rootName" placeholder="e.g., Benzenesulfonyl chloride">
+        <label for="rootName">名称（可选）</label>
+        <input id="rootName" placeholder="例如：Benzenesulfonyl chloride">
       </div>
       <div class="input-row">
         <label for="rootSmiles">SMILES</label>
-        <input id="rootSmiles" placeholder="Enter parent SMILES">
+        <input id="rootSmiles" placeholder="输入母分子的 SMILES">
       </div>
-      <button id="setRootBtn">Set Parent</button>
+      <button id="setRootBtn">设置母分子</button>
     </div>
     <div class="panel">
-      <h3>Child Molecule</h3>
-      <p class="hint">Click any node below to set it as the current parent.</p>
-      <div class="current-parent">Current parent: <span id="selectedLabel">None</span></div>
+      <h3>子分子</h3>
+      <p class="hint">点击下方任意节点，即可把该节点设置为当前母分子。</p>
+      <div class="current-parent">当前母分子：<span id="selectedLabel">尚未选择</span></div>
       <div class="input-row">
-        <label for="childName">Name (optional)</label>
-        <input id="childName" placeholder="e.g., Hydroquinone">
+        <label for="childName">名称（可选）</label>
+        <input id="childName" placeholder="例如：Hydroquinone">
       </div>
       <div class="input-row">
-        <label for="childSmiles">Child SMILES</label>
-        <input id="childSmiles" placeholder="Enter child SMILES to connect">
+        <label for="childSmiles">子 SMILES</label>
+        <input id="childSmiles" placeholder="输入要连接的子分子 SMILES">
       </div>
-      <button id="addChildBtn">Add Child</button>
+      <button id="addChildBtn">添加子分子</button>
     </div>
   </section>
 
-  <div id="status" class="status">Loading RDKit core, please wait...</div>
+  <div id="status" class="status">正在加载 RDKit 内核，请稍候…</div>
   <div class="instructions">
-    1) Enter parent SMILES and click Set Parent to render the structure. 2) Click a node to set it as current parent, then enter child SMILES to add. 3) Use mouse wheel to zoom and drag to pan; updates auto-center.
+    ① 输入母分子的 SMILES 并点击“设置母分子”，下方区域会立即生成结构图。② 点击任意节点可将其设为当前母分子，再输入子 SMILES 添加子节点。③ 鼠标滚轮缩放，拖动空白区域平移，保持树状图清晰；每次更新都会自动居中。
     <div class="actions">
-      <button id="undoBtn" title="Undo last step">Undo</button>
-      <button id="redoBtn" title="Redo">Redo</button>
-      <button id="deleteNodeBtn" title="Delete the selected parent and all children">Delete Branch</button>
-      <button id="checkDuplicatesBtn" title="Find duplicate SMILES and highlight">Check Duplicates</button>
-      <button id="exportBtn">Export current m/z</button>
-      <button id="exportMzBtn">Export m/z list</button>
-      <select id="ionMode" title="Select ion mode">
-        <option value="neutral">Neutral</option>
-        <option value="positive">Positive (+H)</option>
-        <option value="negative">Negative (-H)</option>
+      <button id="undoBtn" title="撤回上一步">撤回</button>
+      <button id="redoBtn" title="恢复">恢复</button>
+      <button id="deleteNodeBtn" title="删除当前选中的母分子及其所有子分子">删除当前分支</button>
+      <button id="checkDuplicatesBtn" title="查找重复的 SMILES 并用红色高亮">查重</button>
+      <button id="exportBtn">导出当前 m/z</button>
+      <button id="exportMzBtn">导出 m/z 列表</button>
+      <select id="ionMode" title="选择电离模式">
+        <option value="neutral">中性模式</option>
+        <option value="positive">正离子模式(+H)</option>
+        <option value="negative">负离子模式(-H)</option>
       </select>
-      <button id="showExplicitBtn">Show explicit H</button>
-      <button id="exportTreeBtn">Save pathway</button>
-      <button id="importTreeBtn">Load pathway</button>
+      <button id="showExplicitBtn">显示显式 H 信息</button>
+      <button id="exportTreeBtn">保存反应路径</button>
+      <button id="importTreeBtn">读取反应路径</button>
       <input type="file" id="importFileInput" accept=".csv" style="position: fixed; left: -9999px; opacity: 0; width: 1px; height: 1px;">
     </div>
   </div>
 
   <div class="height-control">
-    <span>Canvas height</span>
+    <span>画布高度</span>
     <input id="heightSlider" type="range" min="600" max="2000" step="50" value="900">
     <span id="heightValue">900px</span>
   </div>
@@ -663,7 +663,7 @@
         script.src = src;
         script.async = true;
         script.onload = () => resolve(src);
-        script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+        script.onerror = () => reject(new Error(`加载脚本失败：${src}`));
         document.head.appendChild(script);
       });
     }
@@ -671,7 +671,7 @@
     async function fetchWasm(url) {
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to fetch wasm: ${response.status}`);
+        throw new Error(`拉取 wasm 失败：${response.status}`);
       }
       const buffer = await response.arrayBuffer();
       return buffer;
@@ -681,7 +681,7 @@
       if (!rdkitInitPromise) {
         const tryLocalFirst = loadScript(RDKIT_LOCAL_JS)
           .catch(err => {
-            console.warn("Local RDKit_minimal.js load failed.", err);
+            console.warn("本地 RDKit_minimal.js 加载失败。", err);
             return loadScript(RDKIT_CDN_JS);
           });
 
@@ -692,7 +692,7 @@
             window.__rdkitUseCdnWasm = true;
           }
           if (typeof initRDKitModule !== "function") {
-            throw new Error("initRDKitModule is missing; RDKit cannot be initialized.");
+            throw new Error("initRDKitModule 未加载，无法初始化 RDKit。");
           }
           const moduleConfig = {
             locateFile: (file) => {
@@ -704,7 +704,7 @@
           };
           return initRDKitModule(moduleConfig);
         }).catch(err => {
-          // Fall back to local wasm if CDN loading fails.
+          // CDN 加载失败时退回本地 wasm。
           window.__rdkitUseCdnWasm = false;
           if (typeof initRDKitModule !== "function") {
             throw err;
@@ -1257,18 +1257,18 @@
     if (exportMzBtn) {
       exportMzBtn.addEventListener("click", async () => {
       if (!currentTree) {
-        showToast("Please set a parent molecule first.");
+        showToast("请先设置母分子。");
         return;
       }
       if (!RDKit || !isRdkitReady) {
-        showToast("RDKit is not ready; cannot compute m/z.");
+        showToast("RDKit 尚未就绪，无法计算 m/z。");
         return;
       }
       try {
         const nodes = [];
         collectNodes(currentTree, nodes);
         if (!nodes.length) {
-          showToast("No nodes available to export.");
+          showToast("没有可导出的节点。");
           return;
         }
         ensureExplicitSmilesForTree(currentTree);
@@ -1284,10 +1284,10 @@
         if (!savedWithPicker) {
           triggerDownload(blob, fileName);
         }
-        showToast("m/z list exported.");
+        showToast("已导出 m/z 列表。");
       } catch (err) {
         console.error(err);
-        showToast("Export failed: " + err.message, 3500);
+        showToast("导出失败：" + err.message, 3500);
       }
       });
     }
