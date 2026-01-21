@@ -46,6 +46,9 @@ def load_html():
     inline_assets = os.environ.get("INLINE_RDKIT", "").lower() in {"1", "true", "yes"}
     if not inline_assets:
         return content
+    inline_assets = os.environ.get("INLINE_RDKIT", "").lower() in {"1", "true", "yes"}
+    if not inline_assets:
+        return content
 
     # 将本地 RDKit 文件打包成 data URI，这样 Streamlit Cloud 无需访问外部网络即可加载。
     def encode_data_uri(path: str, mime: str) -> str:
@@ -86,5 +89,6 @@ if html_content:
     st.components.v1.html(html_content, height=900, scrolling=True)
 else:
     st.error("无法找到 index.html 文件。请确保文件存在于项目根目录。")
+
 
 
